@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-import { PUBLIC_PATHS } from "@/lib/routes";
+import { PUBLIC_PATHS, ROUTES } from "@/lib/routes";
 
 const AUTH_COOKIE = "library_authed";
 
@@ -15,14 +15,14 @@ export function middleware(request: NextRequest) {
   // Unauthenticated user hitting a protected route → redirect to login
   if (!hasSession && !isPublic(pathname)) {
     const url = request.nextUrl.clone();
-    url.pathname = "/login";
+    url.pathname = ROUTES.LOGIN;
     return NextResponse.redirect(url);
   }
 
-  // Authenticated user hitting the login page → redirect to books
+  // Authenticated user hitting the login page → redirect to dashboard
   if (hasSession && isPublic(pathname)) {
     const url = request.nextUrl.clone();
-    url.pathname = "/books";
+    url.pathname = ROUTES.DASHBOARD;
     return NextResponse.redirect(url);
   }
 

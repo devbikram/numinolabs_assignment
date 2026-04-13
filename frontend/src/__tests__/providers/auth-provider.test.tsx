@@ -61,7 +61,7 @@ describe("AuthProvider", () => {
     await waitFor(() => expect(screen.getByTestId("no-user")).toBeInTheDocument());
   });
 
-  it("login success sets user and redirects to /books", async () => {
+  it("login success sets user and redirects to /dashboard", async () => {
     global.fetch = jest.fn()
       .mockResolvedValueOnce({
         ok: true,
@@ -80,7 +80,7 @@ describe("AuthProvider", () => {
     });
 
     await waitFor(() => expect(screen.getByTestId("user")).toHaveTextContent("admin@example.com"));
-    expect(mockPush).toHaveBeenCalledWith("/books");
+    expect(mockPush).toHaveBeenCalledWith("/dashboard");
   });
 
   it("login failure throws a sanitized error (no server detail leaked)", async () => {

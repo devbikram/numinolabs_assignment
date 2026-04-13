@@ -4,7 +4,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect, type ReactNode } from "react";
 import { useAuth } from "@/providers/auth-provider";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
-import { PUBLIC_PATHS } from "@/lib/routes";
+import { PUBLIC_PATHS, ROUTES } from "@/lib/routes";
 
 export function AuthGuard({ children }: { children: ReactNode }) {
   const { user, isLoading } = useAuth();
@@ -15,10 +15,10 @@ export function AuthGuard({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (isLoading) return;
     if (!user && !isPublic) {
-      router.replace("/login");
+      router.replace(ROUTES.LOGIN);
     }
     if (user && isPublic) {
-      router.replace("/books");
+      router.replace(ROUTES.DASHBOARD);
     }
   }, [user, isLoading, isPublic, router]);
 

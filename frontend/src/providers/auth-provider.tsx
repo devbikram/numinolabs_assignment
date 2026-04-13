@@ -11,6 +11,7 @@ import {
 } from "react";
 import { useRouter } from "next/navigation";
 import { BASE_URL, TOKEN_KEY, REFRESH_KEY, tryRefreshTokens } from "@/lib/api";
+import { ROUTES } from "@/lib/routes";
 
 const AUTH_COOKIE = "library_authed";
 
@@ -133,7 +134,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (!u) throw new Error("Failed to load user profile");
       setUser(u);
       setAuthCookie();
-      router.push("/books");
+      router.push(ROUTES.DASHBOARD);
     },
     [fetchMe, router]
   );
@@ -147,7 +148,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     clearAuthCookie();
     setToken(null);
     setUser(null);
-    router.push("/login");
+    router.push(ROUTES.LOGIN);
     // Best-effort server-side token revocation (non-blocking, with AbortController timeout)
     if (accessToken) {
       const controller = new AbortController();
