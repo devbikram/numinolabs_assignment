@@ -12,6 +12,8 @@ export class ApiError extends Error {
 export const TOKEN_KEY = "library_token";
 export const REFRESH_KEY = "library_refresh_token";
 
+import { API } from "@/lib/api-endpoints";
+
 let refreshPromise: Promise<string | null> | null = null;
 
 const DEFAULT_TIMEOUT_MS = 15_000;
@@ -27,7 +29,7 @@ export async function tryRefreshTokens(signal?: AbortSignal): Promise<string | n
       const timeoutId = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT_MS);
       // If a parent signal is provided, abort when it fires
       signal?.addEventListener("abort", () => controller.abort(), { once: true });
-      const res = await fetch(`${BASE_URL}/api/v1/auth/refresh`, {
+      const res = await fetch(`${BASE_URL}/api/v1${API.AUTH.REFRESH}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ refresh_token: refreshToken }),

@@ -11,6 +11,7 @@ import {
 } from "react";
 import { useRouter } from "next/navigation";
 import { BASE_URL, TOKEN_KEY, REFRESH_KEY, tryRefreshTokens } from "@/lib/api";
+import { API } from "@/lib/api-endpoints";
 import { ROUTES } from "@/lib/routes";
 
 const AUTH_COOKIE = "library_authed";
@@ -49,7 +50,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // Fetch /auth/me to validate token and get user
   const fetchMe = useCallback(async (t: string, signal?: AbortSignal) => {
     try {
-      const res = await fetch(`${BASE_URL}/api/v1/auth/me`, {
+      const res = await fetch(`${BASE_URL}/api/v1${API.AUTH.ME}`, {
         headers: { Authorization: `Bearer ${t}` },
         signal,
       });
@@ -117,7 +118,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const login = useCallback(
     async (email: string, password: string) => {
-      const res = await fetch(`${BASE_URL}/api/v1/auth/login`, {
+      const res = await fetch(`${BASE_URL}/api/v1${API.AUTH.LOGIN}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, password }),
@@ -153,7 +154,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (accessToken) {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 5000);
-      fetch(`${BASE_URL}/api/v1/auth/logout`, {
+      fetch(`${BASE_URL}/api/v1${API.AUTH.LOGOUT}`, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${accessToken}`,

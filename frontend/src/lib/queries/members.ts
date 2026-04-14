@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
+import { API } from "@/lib/api-endpoints";
 import type {
   Member,
   MemberBorrowingStats,
@@ -30,7 +31,7 @@ export function useMembers(
         params.set("order", sort.direction);
       }
       return apiFetch<PaginatedResponse<Member>>(
-        `/members/?${params.toString()}`
+        `${API.MEMBERS.LIST}?${params.toString()}`
       );
     },
     ...options,
@@ -40,7 +41,7 @@ export function useMembers(
 export function useMember(id: string) {
   return useQuery({
     queryKey: ["members", id],
-    queryFn: () => apiFetch<Member>(`/members/${id}`),
+    queryFn: () => apiFetch<Member>(API.MEMBERS.DETAIL(id)),
     enabled: !!id,
   });
 }
@@ -48,7 +49,7 @@ export function useMember(id: string) {
 export function useMemberStats(id: string) {
   return useQuery({
     queryKey: ["members", id, "stats"],
-    queryFn: () => apiFetch<MemberBorrowingStats>(`/members/${id}/stats`),
+    queryFn: () => apiFetch<MemberBorrowingStats>(API.MEMBERS.STATS(id)),
     enabled: !!id,
   });
 }
@@ -57,7 +58,7 @@ export function useCreateMember() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (data: MemberCreate) =>
-      apiFetch<Member>("/members/", {
+      apiFetch<Member>(API.MEMBERS.LIST, {
         method: "POST",
         body: JSON.stringify(data),
       }),
@@ -69,7 +70,7 @@ export function useUpdateMember() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({ id, data }: { id: string; data: MemberUpdate }) =>
-      apiFetch<Member>(`/members/${id}`, {
+      apiFetch<Member>(API.MEMBERS.DETAIL(id), {
         method: "PATCH",
         body: JSON.stringify(data),
       }),
@@ -81,7 +82,7 @@ export function useDeleteMember() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (id: string) =>
-      apiFetch<MessageResponse>(`/members/${id}`, { method: "DELETE" }),
+      apiFetch<MessageResponse>(API.MEMBERS.DETAIL(id), { method: "DELETE" }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["members"] }),
   });
 }

@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
+import { API } from "@/lib/api-endpoints";
 import type {
   Book,
   BookBorrowingStats,
@@ -40,7 +41,7 @@ export function useBooks(
         params.set("order", sort.direction);
       }
       return apiFetch<PaginatedResponse<Book>>(
-        `/books/?${params.toString()}`
+        `${API.BOOKS.LIST}?${params.toString()}`
       );
     },
     ...options,
@@ -50,7 +51,7 @@ export function useBooks(
 export function useBook(id: string) {
   return useQuery({
     queryKey: ["books", id],
-    queryFn: () => apiFetch<Book>(`/books/${id}`),
+    queryFn: () => apiFetch<Book>(API.BOOKS.DETAIL(id)),
     enabled: !!id,
   });
 }
@@ -58,7 +59,7 @@ export function useBook(id: string) {
 export function useBookStats(id: string) {
   return useQuery({
     queryKey: ["books", id, "stats"],
-    queryFn: () => apiFetch<BookBorrowingStats>(`/books/${id}/stats`),
+    queryFn: () => apiFetch<BookBorrowingStats>(API.BOOKS.STATS(id)),
     enabled: !!id,
   });
 }
@@ -67,7 +68,7 @@ export function useCreateBook() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (data: BookCreate) =>
-      apiFetch<Book>("/books/", {
+      apiFetch<Book>(API.BOOKS.LIST, {
         method: "POST",
         body: JSON.stringify(data),
       }),
@@ -79,7 +80,7 @@ export function useUpdateBook() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({ id, data }: { id: string; data: BookUpdate }) =>
-      apiFetch<Book>(`/books/${id}`, {
+      apiFetch<Book>(API.BOOKS.DETAIL(id), {
         method: "PATCH",
         body: JSON.stringify(data),
       }),
@@ -91,7 +92,7 @@ export function useDeleteBook() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (id: string) =>
-      apiFetch<MessageResponse>(`/books/${id}`, { method: "DELETE" }),
+      apiFetch<MessageResponse>(API.BOOKS.DETAIL(id), { method: "DELETE" }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["books"] }),
   });
 }

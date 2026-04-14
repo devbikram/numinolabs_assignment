@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
+import { API } from "@/lib/api-endpoints";
 import type {
   Borrowing,
   BorrowingCreate,
@@ -33,7 +34,7 @@ export function useBorrowings(
         params.set("order", sort.direction);
       }
       return apiFetch<PaginatedResponse<Borrowing>>(
-        `/borrows/?${params.toString()}`
+        `${API.BORROWS.LIST}?${params.toString()}`
       );
     },
   });
@@ -49,7 +50,7 @@ export function useMemberBorrowings(memberId: string, skip = 0, limit = 20) {
         limit: String(limit),
       });
       return apiFetch<PaginatedResponse<Borrowing>>(
-        `/borrows/?${params.toString()}`
+        `${API.BORROWS.LIST}?${params.toString()}`
       );
     },
     enabled: !!memberId,
@@ -66,7 +67,7 @@ export function useBookBorrowings(bookId: string, skip = 0, limit = 20) {
         limit: String(limit),
       });
       return apiFetch<PaginatedResponse<Borrowing>>(
-        `/borrows/?${params.toString()}`
+        `${API.BORROWS.LIST}?${params.toString()}`
       );
     },
     enabled: !!bookId,
@@ -77,7 +78,7 @@ export function useCreateBorrowing() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (data: BorrowingCreate) =>
-      apiFetch<Borrowing>("/borrows/", {
+      apiFetch<Borrowing>(API.BORROWS.LIST, {
         method: "POST",
         body: JSON.stringify(data),
       }),
@@ -92,7 +93,7 @@ export function useReturnBook() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (borrowingId: string) =>
-      apiFetch<Borrowing>(`/borrows/${borrowingId}/return`, {
+      apiFetch<Borrowing>(API.BORROWS.RETURN(borrowingId), {
         method: "PATCH",
       }),
     onSuccess: () => {
