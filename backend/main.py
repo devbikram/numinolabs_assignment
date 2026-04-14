@@ -1,16 +1,15 @@
+import asyncio
 import logging
 import random
-import threading
-import time
 import uuid
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
+from sqlalchemy import text
 
 from api.v1.router import v1_router
 from config.database import SessionLocal
@@ -24,21 +23,49 @@ logger = logging.getLogger(__name__)
 
 SHOW_DOCS_ENVIRONMENT = ("development", "staging")
 
+# Arbitrary 64-bit key for pg_try_advisory_lock; only one worker acquires this at a time.
+_OVERDUE_LOCK_ID = 7_234_501
 
-def _overdue_scanner_loop() -> None:
-    """Daemon thread: mark overdue borrowings periodically.
 
-    Sleeps first so the thread never fires during the automated test suite
-    (typical test run completes in under 30 seconds). A random jitter up to
-    60 s is added so multiple replicas do not fire the bulk UPDATE in lock-step.
+async def _overdue_scanner_loop() -> None:
+    """Async task: mark overdue borrowings periodically.
+
+    Uses PostgreSQL advisory locks so only one worker across all replicas
+    performs the scan.  Falls back to unconditional execution on non-PostgreSQL
+    databases (e.g. SQLite in tests).
     """
     interval = settings.OVERDUE_SCAN_INTERVAL_SECONDS
     while True:
         jitter = random.uniform(0, 60)
-        time.sleep(interval + jitter)
+        await asyncio.sleep(interval + jitter)
         db = SessionLocal()
         try:
-            mark_overdue_borrowings(db)
+            # Attempt a session-level advisory lock (non-blocking).
+            # Returns True if this worker grabbed the lock, False otherwise.
+            try:
+                acquired = db.execute(
+                    text(f"SELECT pg_try_advisory_lock({_OVERDUE_LOCK_ID})")
+                ).scalar()
+            except Exception:
+                # Non-PostgreSQL engine (e.g. SQLite in tests) — run unconditionally.
+                acquired = True
+
+            if not acquired:
+                logger.debug("Overdue scan skipped — another worker holds the lock")
+                continue
+
+            try:
+                count = mark_overdue_borrowings(db)
+                if count:
+                    logger.info("Overdue scanner: marked %d borrowing(s) overdue", count)
+            finally:
+                # Release the advisory lock so other workers can acquire it next cycle.
+                try:
+                    db.execute(
+                        text(f"SELECT pg_advisory_unlock({_OVERDUE_LOCK_ID})")
+                    )
+                except Exception:
+                    pass
         except Exception:
             logger.exception("Overdue scanner error")
         finally:
@@ -47,9 +74,13 @@ def _overdue_scanner_loop() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    t = threading.Thread(target=_overdue_scanner_loop, daemon=True)
-    t.start()
+    task = asyncio.create_task(_overdue_scanner_loop())
     yield
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
 
 
 def create_app() -> FastAPI:

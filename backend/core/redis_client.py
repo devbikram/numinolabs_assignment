@@ -56,11 +56,3 @@ def get_redis():
         _initialized = True
 
     return _client
-
-
-def _reset_for_testing() -> None:
-    """Reset the singleton so tests that patch REDIS_URL get a fresh client."""
-    global _client, _initialized
-    with _lock:
-        _client = None
-        _initialized = False
