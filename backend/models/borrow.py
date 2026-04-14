@@ -18,13 +18,13 @@ class BorrowStatus(str, enum.Enum):
 class Borrowing(UUIDMixin, TimestampMixin, Base):
     __tablename__ = "borrowing"
 
-    book_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("book.id", ondelete="CASCADE"),
-        nullable=False,
+    book_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("book.id", ondelete="SET NULL"),
+        nullable=True,
     )
-    member_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("member.id", ondelete="CASCADE"),
-        nullable=False,
+    member_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("member.id", ondelete="SET NULL"),
+        nullable=True,
     )
     borrowed_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False
@@ -41,5 +41,5 @@ class Borrowing(UUIDMixin, TimestampMixin, Base):
         default=BorrowStatus.borrowed,
     )
 
-    book: Mapped["Book"] = relationship(back_populates="borrowings")  # noqa: F821
-    member: Mapped["Member"] = relationship(back_populates="borrowings")  # noqa: F821
+    book: Mapped["Book | None"] = relationship(back_populates="borrowings")  # noqa: F821
+    member: Mapped["Member | None"] = relationship(back_populates="borrowings")  # noqa: F821

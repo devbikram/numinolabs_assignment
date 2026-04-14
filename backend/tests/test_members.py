@@ -176,6 +176,10 @@ class TestListMembers:
         resp = client.get("/api/v1/members/")
         assert resp.status_code == 401
 
+    def test_invalid_sort_by_returns_422(self, client, tok):
+        resp = client.get("/api/v1/members/?sort_by=not_a_column", headers=auth_headers(tok))
+        assert resp.status_code == 422
+
 
 # ---------------------------------------------------------------------------
 # Search
@@ -329,6 +333,59 @@ class TestDeleteMember:
     def test_unauthenticated_returns_401(self, client):
         resp = client.delete(f"/api/v1/members/{uuid.uuid4()}")
         assert resp.status_code == 401
+
+    def test_delete_blocked_when_active_borrowing_exists(self, client, tok, db, a_member):
+        """Cannot delete a member that has active (borrowed/overdue) borrowings."""
+        from models import Book
+
+        book = Book(title="Borrow Book", isbn="9780000099001", total_copies=2, available_copies=2)
+        db.add(book)
+        db.commit()
+        db.refresh(book)
+
+        b = Borrowing(
+            book_id=book.id,
+            member_id=a_member.id,
+            borrowed_at=datetime.now(timezone.utc),
+            due_date=datetime.now(timezone.utc) + timedelta(days=14),
+            status=BorrowStatus.borrowed,
+        )
+        db.add(b)
+        db.commit()
+
+        resp = client.delete(f"/api/v1/members/{a_member.id}", headers=auth_headers(tok))
+        assert resp.status_code == 400
+        assert "active borrowing" in resp.json()["detail"].lower()
+
+    def test_delete_allowed_after_all_borrowings_returned(self, client, tok, db, a_member):
+        """Deleting a member succeeds once all borrowings are returned; records survive."""
+        from models import Book
+
+        book = Book(title="Borrow Book", isbn="9780000099002", total_copies=2, available_copies=2)
+        db.add(book)
+        db.commit()
+        db.refresh(book)
+
+        b = Borrowing(
+            book_id=book.id,
+            member_id=a_member.id,
+            borrowed_at=datetime.now(timezone.utc),
+            due_date=datetime.now(timezone.utc) + timedelta(days=14),
+            returned_at=datetime.now(timezone.utc),
+            status=BorrowStatus.returned,
+        )
+        db.add(b)
+        db.commit()
+        borrowing_id = b.id
+
+        resp = client.delete(f"/api/v1/members/{a_member.id}", headers=auth_headers(tok))
+        assert resp.status_code == 200
+
+        # Borrowing record survives with member_id set to NULL
+        db.expire_all()
+        surviving = db.get(Borrowing, borrowing_id)
+        assert surviving is not None
+        assert surviving.member_id is None
 
 
 # ---------------------------------------------------------------------------

@@ -46,5 +46,5 @@ class Book(UUIDMixin, TimestampMixin, Base):
     )
     borrowings: Mapped[list["Borrowing"]] = relationship(  # noqa: F821
         back_populates="book",
-        cascade="all, delete-orphan",
+        passive_deletes=True,
     )

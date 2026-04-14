@@ -105,6 +105,17 @@ class TestUpdateAuthor:
         )
         assert resp.status_code == 404
 
+    def test_update_name_with_whitespace_case_variant_returns_409(self, client, tok):
+        _create(client, tok, "Jane Austen")
+        resp_b = _create(client, tok, "Charlotte Bronte")
+        author_b_id = resp_b.json()["id"]
+        resp = client.patch(
+            f"/api/v1/authors/{author_b_id}",
+            json={"name": "  jane austen  "},
+            headers=auth_headers(tok),
+        )
+        assert resp.status_code == 409
+
 
 # ---------------------------------------------------------------------------
 # book_count correctness (Issue #1)

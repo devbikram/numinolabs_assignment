@@ -3,11 +3,10 @@ import uuid
 from fastapi import APIRouter, Query, Request, status
 
 from api.deps import DBSession, PaginationDep
-from api.exceptions import ConflictException, NotFoundException
 from core.limiter import limiter
-from crud import author as author_crud
 from schemas.author import AuthorCreate, AuthorResponse, AuthorStats, AuthorUpdate
 from schemas.common import MessageResponse, PaginatedResponse
+from services import author as author_service
 
 router = APIRouter(prefix="/authors", tags=["Authors"])
 
@@ -20,10 +19,7 @@ router = APIRouter(prefix="/authors", tags=["Authors"])
 )
 @limiter.limit("20/minute")
 def create_author(request: Request, data: AuthorCreate, db: DBSession):
-    if author_crud.author_name_taken(db, data.name):
-        raise ConflictException(detail=f"An author named '{data.name}' already exists")
-    author = author_crud.create_author(db, data)
-    return author
+    return author_service.create_author(db, data)
 
 
 @router.get(
@@ -38,7 +34,7 @@ def list_authors(
     db: DBSession,
     search: str | None = Query(default=None, max_length=200, description="Search by author name (case-insensitive substring)"),
 ):
-    authors, total = author_crud.get_authors(
+    authors, total = author_service.list_authors(
         db, skip=pagination.skip, limit=pagination.limit, search=search
     )
     return pagination.paginate(authors, total)
@@ -51,10 +47,7 @@ def list_authors(
 )
 @limiter.limit("60/minute")
 def get_author(request: Request, author_id: uuid.UUID, db: DBSession):
-    author = author_crud.get_author(db, author_id)
-    if not author:
-        raise NotFoundException(detail=f"Author with id '{author_id}' not found")
-    return author
+    return author_service.get_author(db, author_id)
 
 
 @router.get(
@@ -64,10 +57,7 @@ def get_author(request: Request, author_id: uuid.UUID, db: DBSession):
 )
 @limiter.limit("60/minute")
 def get_author_stats(request: Request, author_id: uuid.UUID, db: DBSession):
-    author = author_crud.get_author(db, author_id)
-    if not author:
-        raise NotFoundException(detail=f"Author with id '{author_id}' not found")
-    return author_crud.get_author_stats(db, author_id)
+    return author_service.get_author_stats(db, author_id)
 
 
 @router.patch(
@@ -79,12 +69,7 @@ def get_author_stats(request: Request, author_id: uuid.UUID, db: DBSession):
 def update_author(
     request: Request, author_id: uuid.UUID, data: AuthorUpdate, db: DBSession
 ):
-    author = author_crud.get_author(db, author_id)
-    if not author:
-        raise NotFoundException(detail=f"Author with id '{author_id}' not found")
-    if data.name is not None and author_crud.author_name_taken(db, data.name, exclude_id=author_id):
-        raise ConflictException(detail=f"An author named '{data.name}' already exists")
-    return author_crud.update_author(db, author, data)
+    return author_service.update_author(db, author_id, data)
 
 
 @router.delete(
@@ -95,8 +80,5 @@ def update_author(
 )
 @limiter.limit("20/minute")
 def delete_author(request: Request, author_id: uuid.UUID, db: DBSession):
-    author = author_crud.get_author(db, author_id)
-    if not author:
-        raise NotFoundException(detail=f"Author with id '{author_id}' not found")
-    author_crud.delete_author(db, author)
+    author_service.delete_author(db, author_id)
     return MessageResponse(message="Author deleted successfully")

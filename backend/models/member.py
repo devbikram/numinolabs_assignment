@@ -18,5 +18,5 @@ class Member(UUIDMixin, TimestampMixin, Base):
 
     borrowings: Mapped[list["Borrowing"]] = relationship(  # noqa: F821
         back_populates="member",
-        cascade="all, delete-orphan",
+        passive_deletes=True,
     )

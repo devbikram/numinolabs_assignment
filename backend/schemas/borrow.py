@@ -37,13 +37,13 @@ class MemberBriefResponse(CustomBaseModel):
 
 class BorrowingResponse(CustomBaseModel):
     id: uuid.UUID
-    book_id: uuid.UUID
-    member_id: uuid.UUID
+    book_id: uuid.UUID | None
+    member_id: uuid.UUID | None
     borrowed_at: datetime
     due_date: datetime
     returned_at: datetime | None
     status: BorrowStatus
-    book: BookBriefResponse
-    member: MemberBriefResponse
+    book: BookBriefResponse | None
+    member: MemberBriefResponse | None
     created_at: datetime
     updated_at: datetime

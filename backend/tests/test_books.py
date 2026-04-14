@@ -5,7 +5,7 @@ import uuid
 
 import pytest
 
-from models import Author
+from models import Author, Category
 from tests.conftest import MANAGER_EMAIL, MANAGER_PASSWORD, auth_headers, login
 
 ISBN_A = "9780000000001"
@@ -95,6 +95,24 @@ class TestGetBook:
         resp = client.get(f"/api/v1/books/{uuid.uuid4()}", headers=auth_headers(tok))
         assert resp.status_code == 404
 
+    def test_list_books_invalid_author_filter_returns_404(self, client, tok):
+        resp = client.get(
+            f"/api/v1/books/?author_id={uuid.uuid4()}",
+            headers=auth_headers(tok),
+        )
+        assert resp.status_code == 404
+
+    def test_list_books_invalid_category_filter_returns_404(self, client, tok):
+        resp = client.get(
+            f"/api/v1/books/?category_id={uuid.uuid4()}",
+            headers=auth_headers(tok),
+        )
+        assert resp.status_code == 404
+
+    def test_list_books_invalid_sort_by_returns_422(self, client, tok):
+        resp = client.get("/api/v1/books/?sort_by=not_a_column", headers=auth_headers(tok))
+        assert resp.status_code == 422
+
 
 # ---------------------------------------------------------------------------
 # Update
@@ -182,6 +200,53 @@ class TestDeleteBook:
     def test_delete_nonexistent_book_returns_404(self, client, tok):
         resp = client.delete(f"/api/v1/books/{uuid.uuid4()}", headers=auth_headers(tok))
         assert resp.status_code == 404
+
+    def test_delete_blocked_when_active_borrowing_exists(self, client, tok, db, a_book, a_member):
+        """Cannot delete a book that has active (borrowed/overdue) borrowings."""
+        from datetime import datetime, timedelta, timezone
+        from models import Borrowing
+        from models.borrow import BorrowStatus
+
+        b = Borrowing(
+            book_id=a_book.id,
+            member_id=a_member.id,
+            borrowed_at=datetime.now(timezone.utc),
+            due_date=datetime.now(timezone.utc) + timedelta(days=14),
+            status=BorrowStatus.borrowed,
+        )
+        db.add(b)
+        db.commit()
+
+        resp = client.delete(f"/api/v1/books/{a_book.id}", headers=auth_headers(tok))
+        assert resp.status_code == 400
+        assert "active borrowing" in resp.json()["detail"].lower()
+
+    def test_delete_allowed_after_all_borrowings_returned(self, client, tok, db, a_book, a_member):
+        """Deleting a book succeeds once all borrowings are returned, and borrowing records survive."""
+        from datetime import datetime, timedelta, timezone
+        from models import Borrowing
+        from models.borrow import BorrowStatus
+
+        b = Borrowing(
+            book_id=a_book.id,
+            member_id=a_member.id,
+            borrowed_at=datetime.now(timezone.utc),
+            due_date=datetime.now(timezone.utc) + timedelta(days=14),
+            returned_at=datetime.now(timezone.utc),
+            status=BorrowStatus.returned,
+        )
+        db.add(b)
+        db.commit()
+        borrowing_id = b.id
+
+        resp = client.delete(f"/api/v1/books/{a_book.id}", headers=auth_headers(tok))
+        assert resp.status_code == 200
+
+        # Borrowing record survives with book_id set to NULL
+        db.expire_all()
+        surviving = db.get(Borrowing, borrowing_id)
+        assert surviving is not None
+        assert surviving.book_id is None
 
 
 # ---------------------------------------------------------------------------
@@ -324,9 +389,17 @@ class TestBookSearch:
         assert body["total"] == 0
         assert body["items"] == []
 
-    def test_search_combined_with_category_filter(self, client, tok):
+    def test_search_combined_with_category_filter(self, client, tok, db):
         """search and category_id filters should be ANDed together."""
-        resp = client.get("/api/v1/books/?search=test&category_id=00000000-0000-0000-0000-000000000000", headers=auth_headers(tok))
+        category = Category(name="Reference")
+        db.add(category)
+        db.commit()
+        db.refresh(category)
+
+        resp = client.get(
+            f"/api/v1/books/?search=test&category_id={category.id}",
+            headers=auth_headers(tok),
+        )
         assert resp.status_code == 200
         assert resp.json()["total"] == 0
 

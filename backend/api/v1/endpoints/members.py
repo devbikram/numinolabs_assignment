@@ -1,14 +1,13 @@
 import uuid
+from typing import Literal
 
 from fastapi import APIRouter, Query, Request, status
-from sqlalchemy.exc import IntegrityError
 
 from api.deps import DBSession, PaginationDep
-from api.exceptions import ConflictException, NotFoundException
 from core.limiter import limiter
-from crud import member as member_crud
 from schemas.common import MessageResponse, PaginatedResponse
 from schemas.member import MemberBorrowingStats, MemberCreate, MemberResponse, MemberUpdate
+from services import member as member_service
 
 router = APIRouter(prefix="/members", tags=["Members"])
 
@@ -21,13 +20,7 @@ router = APIRouter(prefix="/members", tags=["Members"])
 )
 @limiter.limit("20/minute")
 def create_member(request: Request, data: MemberCreate, db: DBSession):
-    try:
-        return member_crud.create_member(db, data)
-    except IntegrityError:
-        db.rollback()
-        raise ConflictException(
-            detail=f"Member with email '{data.email}' already exists"
-        )
+    return member_service.create_member(db, data)
 
 
 @router.get(
@@ -41,10 +34,12 @@ def list_members(
     pagination: PaginationDep,
     db: DBSession,
     search: str | None = Query(default=None, max_length=200, description="Search by name, email, or library ID"),
-    sort_by: str = Query(default="full_name", description="Sort by column"),
+    sort_by: Literal["full_name", "email", "library_id", "created_at"] = Query(
+        default="full_name", description="Sort by column"
+    ),
     order: str = Query(default="asc", pattern="^(asc|desc)$", description="Sort order"),
 ):
-    members, total = member_crud.get_members(
+    members, total = member_service.list_members(
         db, skip=pagination.skip, limit=pagination.limit, search=search,
         sort_by=sort_by, order=order,
     )
@@ -58,10 +53,7 @@ def list_members(
 )
 @limiter.limit("60/minute")
 def get_member(request: Request, member_id: uuid.UUID, db: DBSession):
-    member = member_crud.get_member(db, member_id)
-    if not member:
-        raise NotFoundException(detail=f"Member with id '{member_id}' not found")
-    return member
+    return member_service.get_member(db, member_id)
 
 
 @router.get(
@@ -71,10 +63,7 @@ def get_member(request: Request, member_id: uuid.UUID, db: DBSession):
 )
 @limiter.limit("60/minute")
 def get_member_stats(request: Request, member_id: uuid.UUID, db: DBSession):
-    member = member_crud.get_member(db, member_id)
-    if not member:
-        raise NotFoundException(detail=f"Member with id '{member_id}' not found")
-    return member_crud.get_member_borrowing_stats(db, member_id)
+    return member_service.get_member_stats(db, member_id)
 
 
 @router.patch(
@@ -86,18 +75,7 @@ def get_member_stats(request: Request, member_id: uuid.UUID, db: DBSession):
 def update_member(
     request: Request, member_id: uuid.UUID, data: MemberUpdate, db: DBSession
 ):
-    member = member_crud.get_member(db, member_id)
-    if not member:
-        raise NotFoundException(detail=f"Member with id '{member_id}' not found")
-
-    if data.email is not None and data.email != member.email:
-        existing = member_crud.get_member_by_email(db, data.email)
-        if existing:
-            raise ConflictException(
-                detail=f"Member with email '{data.email}' already exists"
-            )
-
-    return member_crud.update_member(db, member, data)
+    return member_service.update_member(db, member_id, data)
 
 
 @router.delete(
@@ -108,8 +86,5 @@ def update_member(
 )
 @limiter.limit("20/minute")
 def delete_member(request: Request, member_id: uuid.UUID, db: DBSession):
-    member = member_crud.get_member(db, member_id)
-    if not member:
-        raise NotFoundException(detail=f"Member with id '{member_id}' not found")
-    member_crud.delete_member(db, member)
+    member_service.delete_member(db, member_id)
     return MessageResponse(message="Member deleted successfully")

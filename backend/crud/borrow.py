@@ -13,7 +13,58 @@ from schemas.borrow import BorrowingCreate
 from crud._utils import escape_like
 
 
+def has_active_borrowing(
+    db: Session, book_id: uuid.UUID, member_id: uuid.UUID
+) -> bool:
+    """Return True if the member already has an active (borrowed/overdue) borrowing for this book."""
+    count = db.scalar(
+        select(func.count())
+        .select_from(Borrowing)
+        .where(
+            Borrowing.book_id == book_id,
+            Borrowing.member_id == member_id,
+            Borrowing.status.in_([BorrowStatus.borrowed, BorrowStatus.overdue]),
+        )
+    )
+    return (count or 0) > 0
+
+
+def count_active_borrowings_for_book(db: Session, book_id: uuid.UUID) -> int:
+    """Return the number of active (borrowed/overdue) borrowings for a given book."""
+    return db.scalar(
+        select(func.count())
+        .select_from(Borrowing)
+        .where(
+            Borrowing.book_id == book_id,
+            Borrowing.status.in_([BorrowStatus.borrowed, BorrowStatus.overdue]),
+        )
+    ) or 0
+
+
+def count_active_borrowings_for_member(db: Session, member_id: uuid.UUID) -> int:
+    """Return the number of active (borrowed/overdue) borrowings for a given member."""
+    return db.scalar(
+        select(func.count())
+        .select_from(Borrowing)
+        .where(
+            Borrowing.member_id == member_id,
+            Borrowing.status.in_([BorrowStatus.borrowed, BorrowStatus.overdue]),
+        )
+    ) or 0
+
+
 def create_borrowing(db: Session, data: BorrowingCreate) -> Borrowing:
+    # Atomically decrement available_copies; guards against race conditions.
+    # On PostgreSQL the AFTER INSERT trigger will recalculate the authoritative
+    # value, but this application-level update keeps SQLite (tests) correct too.
+    result = db.execute(
+        update(Book)
+        .where(Book.id == data.book_id, Book.available_copies > 0)
+        .values(available_copies=Book.available_copies - 1)
+    )
+    if result.rowcount == 0:
+        raise ValueError("No available copies")
+
     borrowing = Borrowing(
         book_id=data.book_id,
         member_id=data.member_id,
@@ -109,6 +160,12 @@ def get_borrowing(db: Session, borrowing_id: uuid.UUID) -> Borrowing | None:
 def return_borrowing(db: Session, borrowing: Borrowing) -> Borrowing:
     borrowing.returned_at = datetime.now(timezone.utc)
     borrowing.status = BorrowStatus.returned
+    # Restore an available copy (trigger will reconcile on PostgreSQL)
+    db.execute(
+        update(Book)
+        .where(Book.id == borrowing.book_id)
+        .values(available_copies=Book.available_copies + 1)
+    )
     db.commit()
     # Re-fetch with eager-loaded relations so book/member are available for serialization
     return get_borrowing(db, borrowing.id)

@@ -1,22 +1,12 @@
 """
 Integration tests for borrowing and return endpoints.
-
-NOTE on available_copies and the PostgreSQL trigger:
-  In production, a DB trigger fires AFTER INSERT/DELETE on the `borrowing` table
-  and adjusts `book.available_copies` automatically. That trigger does not run in
-  SQLite, so the tests below either:
-    (a) create books with available_copies already set to the desired value, or
-    (b) simulate the trigger by directly updating available_copies after a borrow
-        to verify that the fast-fail guard in the endpoint responds correctly.
-  The trigger itself is validated by the Alembic migration tests against a real
-  PostgreSQL instance.
 """
 import uuid
 from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from models import Book, Borrowing
+from models import Book, Borrowing, Member
 from models.borrow import BorrowStatus
 from tests.conftest import MANAGER_EMAIL, MANAGER_PASSWORD, auth_headers, login
 
@@ -53,6 +43,17 @@ class TestBorrowSuccess:
         assert body["member"]["id"] == str(a_member.id)
         assert body["returned_at"] is None
 
+    def test_borrow_decrements_available_copies(self, client, tok, db, a_book, a_member):
+        assert a_book.available_copies == 2
+
+        client.post(
+            "/api/v1/borrows/",
+            json=_borrow_payload(a_book.id, a_member.id),
+            headers=auth_headers(tok),
+        )
+        db.refresh(a_book)
+        assert a_book.available_copies == 1
+
     def test_borrow_creates_retrievable_record(self, client, tok, a_book, a_member):
         create_resp = client.post(
             "/api/v1/borrows/",
@@ -87,6 +88,20 @@ class TestReturn:
         assert body["status"] == "returned"
         assert body["returned_at"] is not None
 
+    def test_return_increments_available_copies(self, client, tok, db, a_book, a_member):
+        borrow_resp = client.post(
+            "/api/v1/borrows/",
+            json=_borrow_payload(a_book.id, a_member.id),
+            headers=auth_headers(tok),
+        )
+        db.refresh(a_book)
+        assert a_book.available_copies == 1
+
+        borrow_id = borrow_resp.json()["id"]
+        client.patch(f"/api/v1/borrows/{borrow_id}/return", headers=auth_headers(tok))
+        db.refresh(a_book)
+        assert a_book.available_copies == 2
+
     def test_double_return_rejected_with_400(self, client, tok, a_book, a_member):
         borrow_resp = client.post(
             "/api/v1/borrows/",
@@ -104,6 +119,36 @@ class TestReturn:
             headers=auth_headers(tok),
         )
         assert resp.status_code == 404
+
+    def test_return_succeeds_when_book_was_deleted(self, client, tok, db, a_book, a_member):
+        """Returning a borrowing whose book was deleted marks it returned without crashing."""
+        b = Borrowing(
+            book_id=a_book.id,
+            member_id=a_member.id,
+            borrowed_at=datetime.now(timezone.utc),
+            due_date=datetime.now(timezone.utc) + timedelta(days=14),
+            status=BorrowStatus.borrowed,
+        )
+        db.add(b)
+        # Manually adjust available_copies to reflect the borrow
+        a_book.available_copies -= 1
+        db.commit()
+        borrowing_id = b.id
+
+        # Delete the book (no active borrows guard fires because we bypass service)
+        db.delete(a_book)
+        db.commit()
+
+        # Now return the borrowing — should succeed gracefully
+        resp = client.patch(
+            f"/api/v1/borrows/{borrowing_id}/return",
+            headers=auth_headers(tok),
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["status"] == "returned"
+        assert body["returned_at"] is not None
+        assert body["book_id"] is None
 
 
 # ---------------------------------------------------------------------------
@@ -127,6 +172,18 @@ class TestBorrowNotFound:
             headers=auth_headers(tok),
         )
         assert resp.status_code == 404
+
+    @pytest.mark.parametrize("query_key", ["book_id", "member_id", "category_id", "author_id"])
+    def test_list_borrowings_invalid_filter_returns_404(self, client, tok, query_key):
+        resp = client.get(
+            f"/api/v1/borrows/?{query_key}={uuid.uuid4()}",
+            headers=auth_headers(tok),
+        )
+        assert resp.status_code == 404
+
+    def test_list_borrowings_invalid_sort_by_returns_422(self, client, tok):
+        resp = client.get("/api/v1/borrows/?sort_by=not_a_column", headers=auth_headers(tok))
+        assert resp.status_code == 422
 
 
 # ---------------------------------------------------------------------------
@@ -155,18 +212,56 @@ class TestUnavailableBook:
         assert resp.status_code == 400
         assert "no available copies" in resp.json()["detail"].lower()
 
-    def test_available_copies_regression_trigger_simulation(
-        self, client, tok, db, a_book, a_member
-    ):
-        """
-        Regression for the trigger-backed available_copies guard.
+    def test_all_copies_exhausted_returns_400(self, client, tok, db, a_member):
+        """Once all copies are borrowed, the next borrow attempt returns 400."""
+        single_copy = Book(
+            title="Single Copy Book",
+            isbn="0000000099",
+            total_copies=1,
+            available_copies=1,
+        )
+        db.add(single_copy)
+        db.commit()
+        db.refresh(single_copy)
 
-        Step 1: borrow the book — succeeds (available_copies=2 before borrow).
-        Step 2: simulate the PostgreSQL trigger by decrementing available_copies
-                to 0 in the test DB (since SQLite has no trigger).
-        Step 3: second borrow attempt is rejected with 400.
-        """
-        # Step 1 — first borrow succeeds
+        # First borrow succeeds
+        resp1 = client.post(
+            "/api/v1/borrows/",
+            json=_borrow_payload(single_copy.id, a_member.id),
+            headers=auth_headers(tok),
+        )
+        assert resp1.status_code == 201
+        db.refresh(single_copy)
+        assert single_copy.available_copies == 0
+
+        # Create a second member to try borrowing the same book
+        second_member = Member(
+            library_id="LIBU9999",
+            full_name="Second Member",
+            email="second@library.com",
+        )
+        db.add(second_member)
+        db.commit()
+        db.refresh(second_member)
+
+        resp2 = client.post(
+            "/api/v1/borrows/",
+            json=_borrow_payload(single_copy.id, second_member.id),
+            headers=auth_headers(tok),
+        )
+        assert resp2.status_code == 400
+
+
+# ---------------------------------------------------------------------------
+# Duplicate active borrowing prevention
+# ---------------------------------------------------------------------------
+
+
+class TestDuplicateBorrowing:
+    def test_same_member_cannot_borrow_same_book_twice(
+        self, client, tok, a_book, a_member
+    ):
+        """A member with an active borrowing for a book cannot borrow it again."""
         resp1 = client.post(
             "/api/v1/borrows/",
             json=_borrow_payload(a_book.id, a_member.id),
@@ -174,17 +269,57 @@ class TestUnavailableBook:
         )
         assert resp1.status_code == 201
 
-        # Step 2 — simulate trigger: exhaust copies
-        db.query(Book).filter(Book.id == a_book.id).update({"available_copies": 0})
-        db.commit()
-
-        # Step 3 — second borrow rejected
         resp2 = client.post(
             "/api/v1/borrows/",
             json=_borrow_payload(a_book.id, a_member.id),
             headers=auth_headers(tok),
         )
         assert resp2.status_code == 400
+        assert "already has an active borrowing" in resp2.json()["detail"].lower()
+
+    def test_member_can_reborrow_after_return(self, client, tok, a_book, a_member):
+        """Once returned, the same member can borrow the same book again."""
+        borrow_resp = client.post(
+            "/api/v1/borrows/",
+            json=_borrow_payload(a_book.id, a_member.id),
+            headers=auth_headers(tok),
+        )
+        borrow_id = borrow_resp.json()["id"]
+        client.patch(f"/api/v1/borrows/{borrow_id}/return", headers=auth_headers(tok))
+
+        resp = client.post(
+            "/api/v1/borrows/",
+            json=_borrow_payload(a_book.id, a_member.id),
+            headers=auth_headers(tok),
+        )
+        assert resp.status_code == 201
+
+    def test_different_members_can_borrow_same_book(
+        self, client, tok, db, a_book, a_member
+    ):
+        """Different members can borrow different copies of the same book."""
+        resp1 = client.post(
+            "/api/v1/borrows/",
+            json=_borrow_payload(a_book.id, a_member.id),
+            headers=auth_headers(tok),
+        )
+        assert resp1.status_code == 201
+
+        second_member = Member(
+            library_id="LIBU0002",
+            full_name="Another Member",
+            email="another@library.com",
+        )
+        db.add(second_member)
+        db.commit()
+        db.refresh(second_member)
+
+        resp2 = client.post(
+            "/api/v1/borrows/",
+            json=_borrow_payload(a_book.id, second_member.id),
+            headers=auth_headers(tok),
+        )
+        assert resp2.status_code == 201
 
 
 # ---------------------------------------------------------------------------
