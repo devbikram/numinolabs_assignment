@@ -413,6 +413,29 @@ class TestRefreshToken:
         resp2 = client.post("/api/v1/auth/refresh", json={"refresh_token": refresh_token})
         assert resp2.status_code == 401
 
+    def test_concurrent_refresh_only_one_wins(self, client, seed_admin):
+        """Simulate the race: two threads refreshing the same token concurrently.
+
+        Exactly one should succeed (200) and the other must be rejected (401).
+        """
+        import concurrent.futures
+
+        login_resp = client.post(
+            "/api/v1/auth/login",
+            json={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD},
+        )
+        refresh_token = login_resp.json()["refresh_token"]
+
+        def do_refresh():
+            return client.post("/api/v1/auth/refresh", json={"refresh_token": refresh_token})
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+            futures = [pool.submit(do_refresh) for _ in range(2)]
+            results = [f.result() for f in futures]
+
+        codes = sorted(r.status_code for r in results)
+        assert codes == [200, 401], f"Expected exactly one success, got status codes {codes}"
+
 
 # ---------------------------------------------------------------------------
 # GET /auth/me

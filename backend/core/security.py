@@ -54,6 +54,33 @@ def is_token_revoked(jti: str) -> bool:
         return jti in _blocklist
 
 
+def revoke_token_if_unused(jti: str, exp: int | None = None) -> bool:
+    """Atomically revoke *jti* only if it has not already been revoked.
+
+    Returns ``True`` when this call was the one that revoked the token (i.e.
+    the token was unused).  Returns ``False`` when another caller already
+    consumed it — the caller should treat this as a replay and reject the
+    request.
+
+    With Redis: uses ``SET … NX`` (set-if-not-exists) for a single atomic
+    round-trip.  With the in-process fallback: holds the lock for a combined
+    check-and-add.
+    """
+    r = get_redis()
+    if r is not None:
+        # SET … NX returns True only when the key did not already exist.
+        was_set = r.set(
+            f"{_BLOCKLIST_PREFIX}{jti}", "1", ex=_ttl_from_exp(exp), nx=True,
+        )
+        return bool(was_set)
+    # In-process fallback — must hold lock for the entire check-then-add.
+    with _bl_lock:
+        if jti in _blocklist:
+            return False
+        _blocklist.add(jti)
+        return True
+
+
 def reset_blocklist() -> None:  # test-only helper
     # Clears the in-process fallback set.
     # When Redis is active its keys expire via TTL; tests never configure
