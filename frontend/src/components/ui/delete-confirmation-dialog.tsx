@@ -34,10 +34,8 @@ export function DeleteConfirmationDialog({
           <DialogDescription>{description}</DialogDescription>
         </DialogHeader>
         <DialogFooter>
-          <DialogClose asChild>
-            <Button variant="outline" disabled={isPending}>
-              Cancel
-            </Button>
+          <DialogClose render={<Button variant="outline" disabled={isPending} />}>
+            Cancel
           </DialogClose>
           <Button
             variant="destructive"

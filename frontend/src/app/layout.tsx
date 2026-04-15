@@ -35,7 +35,7 @@ export default function RootLayout({
       lang="en"
       className={`${inter.variable} ${jetbrainsMono.variable} h-full antialiased`}
     >
-      <body className="flex h-full min-h-screen font-sans">
+      <body className="h-full min-h-screen font-sans">
         <QueryProvider>
           <AppShell>
             {children}

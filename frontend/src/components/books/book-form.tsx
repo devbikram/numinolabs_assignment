@@ -23,14 +23,14 @@ const bookSchema = z.object({
     .string()
     .regex(/^\d{10}(\d{3})?$/, "Must be 10 or 13 digits"),
   category_id: z.string().nullable().optional(),
-  published_year: z.coerce
+  published_year: z
     .number()
     .min(1000)
     .max(2100)
     .nullable()
     .optional(),
-  total_copies: z.coerce.number().int().min(1),
-  available_copies: z.coerce.number().int().min(0),
+  total_copies: z.number().int().min(1),
+  available_copies: z.number().int().min(0),
 }).refine(
   (d) => (d.available_copies ?? 0) <= d.total_copies,
   { message: "Available copies cannot exceed total copies", path: ["available_copies"] }
@@ -164,7 +164,9 @@ export function BookForm({ open, onOpenChange, book }: BookFormProps) {
           <Input
             id="published_year"
             type="number"
-            {...register("published_year", { valueAsNumber: true })}
+            {...register("published_year", {
+              setValueAs: (value) => (value === "" ? null : Number(value)),
+            })}
           />
         </div>
         <div className="space-y-2">

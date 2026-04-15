@@ -56,9 +56,9 @@ function AppLayout({ children }: { children: ReactNode }) {
         />
       )}
 
-      <div className="flex min-h-screen">
+      <div className="flex min-h-screen w-full">
         <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
-        <main className="flex-1 overflow-y-auto px-6 py-8 lg:px-10 lg:py-8">{children}</main>
+        <main className="min-w-0 flex-1 overflow-y-auto px-6 py-8 lg:px-10 lg:py-8">{children}</main>
       </div>
     </>
   );
