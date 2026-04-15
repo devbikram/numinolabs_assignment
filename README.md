@@ -170,56 +170,113 @@ npm run test:coverage
 
 ```
 numinolabs_assignment/
+├── .gitignore
 ├── backend/
-│   ├── alembic/              # Database migration scripts
+│   ├── alembic/                  # Database migration scripts
+│   ├── alembic.ini               # Alembic configuration
 │   ├── api/
-│   │   ├── deps.py           # Shared dependencies (auth, pagination, DB session)
-│   │   ├── exceptions.py     # Custom HTTP exceptions
+│   │   ├── deps.py               # Shared dependencies (auth, pagination, DB session)
+│   │   ├── exceptions.py         # Custom HTTP exceptions
 │   │   └── v1/
-│   │       ├── router.py     # Route registration
-│   │       └── endpoints/    # Route handlers (books, members, borrows, …)
+│   │       ├── router.py         # Route registration
+│   │       └── endpoints/        # Route handlers (auth, books, members, borrows, ...)
 │   ├── config/
-│   │   ├── database.py       # SQLAlchemy engine & session setup
-│   │   └── settings.py       # Pydantic settings (env-driven)
+│   │   ├── database.py           # SQLAlchemy engine & session setup
+│   │   └── settings.py           # Pydantic settings (env-driven)
 │   ├── core/
-│   │   ├── limiter.py        # Rate limiter instance
-│   │   ├── logging.py        # Structured JSON logging
-│   │   ├── redis_client.py   # Optional Redis connection
-│   │   └── security.py       # JWT creation/verification, password hashing
-│   ├── crud/                 # Database query functions
-│   ├── models/               # SQLAlchemy ORM models
-│   ├── schemas/              # Pydantic request/response schemas
-│   ├── tests/                # pytest test suite
-│   ├── main.py               # FastAPI app factory & middleware
-│   ├── seed.py               # Database seeding script
-│   └── requirements.txt
+│   │   ├── limiter.py            # Rate limiter instance
+│   │   ├── logging.py            # Structured JSON logging
+│   │   ├── redis_client.py       # Optional Redis connection
+│   │   └── security.py           # JWT creation/verification, password hashing
+│   ├── crud/                     # Data access layer
+│   ├── models/                   # SQLAlchemy ORM models
+│   ├── schemas/                  # Pydantic request/response schemas
+│   ├── services/                 # Business logic layer (orchestrates CRUD + enforces rules)
+│   │   ├── auth.py               # Login, logout, token refresh, user management
+│   │   ├── author.py             # Author CRUD and borrowing statistics
+│   │   ├── book.py               # Book creation/update, ISBN conflict, author/category validation
+│   │   ├── borrow.py             # Borrow/return flow, availability enforcement, overdue detection
+│   │   ├── category.py           # Category CRUD
+│   │   ├── dashboard.py          # Aggregated summary statistics
+│   │   └── member.py             # Member CRUD, email uniqueness, borrowing stats
+│   ├── tests/                    # Pytest suites and fixtures
+│   ├── main.py                   # FastAPI app factory & middleware
+│   ├── pyproject.toml            # Python tooling configuration
+│   ├── requirements.txt          # Runtime dependencies
+│   ├── requirements-dev.txt      # Development dependencies
+│   └── seed.py                   # Database seeding script
 │
 ├── frontend/
+│   ├── package.json              # Frontend scripts and dependencies
 │   └── src/
-│       ├── app/              # Next.js App Router pages
-│       │   ├── books/        # Book list & detail pages
-│       │   ├── members/      # Member list & detail pages
-│       │   ├── borrowings/   # Borrowing list page
-│       │   ├── dashboard/    # Dashboard with summary stats
-│       │   ├── authors/      # Author detail page
-│       │   └── login/        # Login page
+│       ├── __tests__/            # Jest and React Testing Library suites
+│       ├── app/                  # Next.js App Router pages and layouts
+│       │   ├── authors/          # Author detail page
+│       │   ├── books/            # Book list and detail pages
+│       │   ├── borrowings/       # Borrowing list page
+│       │   ├── dashboard/        # Dashboard with summary stats
+│       │   ├── login/            # Login page
+│       │   ├── members/          # Member list and detail pages
+│       │   ├── layout.tsx        # Root app layout
+│       │   ├── page.tsx          # App entry page
+│       │   └── globals.css       # Global Tailwind styles
 │       ├── components/
-│       │   ├── ui/           # Reusable UI primitives (Button, Dialog, Table, …)
-│       │   ├── books/        # Book-specific components
-│       │   ├── members/      # Member-specific components
-│       │   ├── borrowings/   # Borrowing-specific components
-│       │   └── layout/       # App shell, sidebar, auth guard
-│       ├── hooks/            # Custom React hooks
+│       │   ├── books/            # Book-specific components
+│       │   ├── borrowings/       # Borrowing-specific components
+│       │   ├── layout/           # App shell, sidebar, auth guard
+│       │   ├── members/          # Member-specific components
+│       │   └── ui/               # Reusable UI primitives (Button, Dialog, Table, ...)
+│       ├── hooks/                # Custom React hooks
 │       ├── lib/
-│       │   ├── api.ts        # API client with token refresh
-│       │   ├── queries/      # TanStack React Query hooks
-│       │   ├── routes.ts     # Centralized route constants
-│       │   └── utils.ts      # Shared utilities
-│       ├── providers/        # React context providers (auth, query client)
-│       └── middleware.ts     # Next.js edge middleware (auth redirect)
+│       │   ├── api-endpoints.ts  # Centralized API path constants
+│       │   ├── api.ts            # API client with token refresh
+│       │   ├── constants.ts      # Shared UI and domain constants
+│       │   ├── errors.ts         # Error normalization and toast helpers
+│       │   ├── queries/          # TanStack React Query hooks
+│       │   ├── routes.ts         # Centralized route constants
+│       │   └── utils.ts          # Shared utilities
+│       ├── providers/            # React context providers (auth, query client)
+│       ├── types/                # Shared frontend TypeScript types
+│       └── middleware.ts         # Next.js auth redirect middleware
 │
 └── README.md
 ```
+
+---
+
+## Backend Architecture
+
+The backend follows a **three-tier layered architecture** to separate concerns and keep each layer focused:
+
+```
+HTTP Request
+     │
+     ▼
+Endpoints  (api/v1/endpoints/)   — request parsing, auth, input validation, response shaping
+     │
+     ▼
+Services   (services/)           — business logic, cross-entity rules, error translation
+     │
+     ▼
+CRUD       (crud/)               — database queries via SQLAlchemy ORM (no business logic)
+     │
+     ▼
+Database   (PostgreSQL)
+```
+
+### Service layer responsibilities
+
+| Module | Responsibilities |
+| --------------- | --------------------------------------------------------------------------- |
+| `auth.py`       | Constant-time login (prevents user enumeration), token issuance, revocation, user CRUD |
+| `book.py`       | ISBN conflict detection, author / category existence checks, copy tracking  |
+| `borrow.py`     | Availability enforcement, duplicate-borrow prevention, overdue flag setting, race-condition handling |
+| `member.py`     | Auto-generated library ID, email uniqueness across create/update, borrowing stats |
+| `author.py`     | Author CRUD, per-author borrowing statistics aggregation                    |
+| `category.py`   | Category CRUD with uniqueness enforcement                                   |
+| `dashboard.py`  | Cross-entity aggregation for summary stats and activity feed                |
+
+> **Endpoints never call CRUD directly.** All business operations go through the service layer so that validation, logging, and error translation are applied consistently.
 
 ---
 
